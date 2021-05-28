@@ -1,0 +1,223 @@
+-- Selecting All Records From Table:CovidDeaths
+
+SELECT *
+FROM   covidproject.dbo.coviddeaths;
+
+
+SELECT *
+FROM   covidproject.dbo.covidvaccinations;
+
+
+-- Selecting Data that we are going to use:
+
+SELECT location,
+       date,
+       total_cases,
+       new_cases,
+       total_deaths,
+       population
+FROM   covidproject.dbo.coviddeaths; 
+
+
+-- Looking Total Cases Vs Total Deaths
+-- Shows Likelyhood of dying if you contract Covid in your Country
+
+SELECT location,
+       date,
+       total_cases,
+       total_deaths,
+       ( total_deaths / total_cases ) * 100 AS DeathPercentage
+FROM   covidproject.dbo.coviddeaths
+WHERE  location = 'India' AND continent IS NOT NULL
+ORDER  BY date DESC; 
+
+
+-- Shows what percentage of polulation got Covid in Country
+
+SELECT location,
+       date,
+	   population,
+       total_cases,
+       ( total_cases/population ) * 100 AS ContractPeoplePercentage
+FROM   covidproject.dbo.coviddeaths
+WHERE  location = 'India' AND continent IS NOT NULL
+ORDER  BY date DESC; 
+
+
+-- Looking at Countries with Highest rate compared to population
+
+SELECT location,
+       population,
+       Max(total_cases)                        AS Total_Cases,
+       Max(( total_cases / population )) * 100 AS ContractPeoplePercentage
+FROM   covidproject.dbo.coviddeaths
+WHERE  continent IS NOT NULL
+GROUP  BY location,
+          population
+ORDER  BY contractpeoplepercentage DESC; 
+
+
+-- Showing Countries with Highest Death Count per Population
+
+SELECT location,
+       Max(Cast(total_deaths AS INT)) AS Total_Deaths
+FROM   covidproject.dbo.coviddeaths
+WHERE  continent IS NOT NULL
+GROUP  BY location
+ORDER  BY total_deaths DESC ;
+
+
+SELECT location,
+       Max(Cast(total_deaths AS INT)) AS Total_Deaths
+FROM   covidproject.dbo.coviddeaths
+WHERE  continent IS NULL
+GROUP  BY location
+ORDER  BY total_deaths DESC ;
+
+
+-- Showing Continents with Highest Death Count per Population
+
+SELECT location,
+       Max(Cast(total_deaths AS INT)) AS Total_Deaths
+FROM   covidproject.dbo.coviddeaths
+WHERE  continent IS NULL
+GROUP  BY location
+ORDER  BY total_deaths DESC ;
+
+-- GLOBAL Data By Date
+
+SELECT date,
+       Sum(new_cases)                                      AS Total_Cases,
+       Sum(Cast(new_deaths AS INT))                        AS Total_Deaths,
+       Sum(Cast(new_deaths AS INT)) / Sum(new_cases) * 100 AS Death_Percentage
+FROM   covidproject.dbo.coviddeaths
+WHERE  continent IS NOT NULL
+GROUP  BY date
+ORDER  BY 1,
+          2 DESC ;
+
+
+-- Total Cases
+
+SELECT --date,
+       Sum(new_cases)                                      AS Total_Cases,
+       Sum(Cast(new_deaths AS INT))                        AS Total_Deaths,
+       Sum(Cast(new_deaths AS INT)) / Sum(new_cases) * 100 AS Death_Percentage
+FROM   covidproject.dbo.coviddeaths
+WHERE  continent IS NOT NULL
+--GROUP  BY date
+ORDER  BY 1,
+          2 DESC 
+
+
+-- Looking at Total Population Vs Vaccination
+
+SELECT *
+FROM   covidproject.dbo.coviddeaths d
+       JOIN covidproject.dbo.covidvaccinations v
+         ON d.location = v.location
+            AND d.date = v.date 
+
+SELECT d.continent,
+       d.location,
+       d.date,
+       d.population,
+       v.new_vaccinations
+FROM   covidproject.dbo.coviddeaths d
+       JOIN covidproject.dbo.covidvaccinations v
+         ON d.location = v.location
+            AND d.date = v.date
+WHERE  d.continent IS NOT NULL
+ORDER  BY 2,
+          3; 
+
+SELECT d.continent,
+       d.location,
+       d.date,
+       d.population,
+       v.new_vaccinations,
+       Sum(CONVERT(INT, v.new_vaccinations))
+         OVER (
+           partition BY d.location
+           ORDER BY d.location, d.date) AS RollingPeopleVaccinate
+FROM   covidproject.dbo.coviddeaths d
+       JOIN covidproject.dbo.covidvaccinations v
+         ON d.location = v.location
+            AND d.date = v.date
+WHERE  d.continent IS NOT NULL
+ORDER  BY 2,
+          3; 
+
+
+-- Use CTE
+
+WITH popvsvac (Continent, Location, Date, Population, newvaccinations,
+     rollingpeoplevaccinated)
+     AS (SELECT d.continent,
+                d.location,
+                d.date,
+                d.population,
+                v.new_vaccinations,
+                Sum(CONVERT(INT, v.new_vaccinations))
+                  OVER (
+                    partition BY d.location
+                    ORDER BY d.location, d.date) AS RollingPeopleVaccinated
+         FROM   covidproject.dbo.coviddeaths d
+                JOIN covidproject.dbo.covidvaccinations v
+                  ON d.location = v.location
+                     AND d.date = v.date
+         WHERE  d.continent IS NOT NULL)
+SELECT *,(rollingpeoplevaccinated/Population)*100
+FROM   popvsvac; 
+
+
+--TEMP Table
+
+DROP TABLE IF EXISTS #percentpopulatinvaccinated
+CREATE TABLE #percentpopulatinvaccinated
+             (
+                          continent               nvarchar(255),
+                          location                nvarchar(255),
+                                                  date datetime,
+                          population              numeric,
+                          new_vaccinations        numeric,
+                          rollingpeoplevaccinated numeric
+             )INSERT INTO #percentpopulatinvaccinated
+SELECT   d.continent,
+         d.location,
+         d.date,
+         d.population,
+         v.new_vaccinations,
+         Sum(CONVERT(INT, v.new_vaccinations)) OVER 
+		 ( partition BY d.location ORDER BY d.location, d.date) AS RollingPeopleVaccinated
+FROM     covidproject.dbo.coviddeaths d
+JOIN     covidproject.dbo.covidvaccinations v
+ON       d.location = v.location
+AND      d.date = v.date
+SELECT *,
+       (rollingpeoplevaccinated/population)*100
+FROM   #percentpopulatinvaccinated;
+
+
+-- Creating a View to store Data for Visualization
+
+
+CREATE VIEW percentpopulatinvaccinated
+AS
+  SELECT d.continent,
+         d.location,
+         d.date,
+         d.population,
+         v.new_vaccinations,
+         Sum(CONVERT(INT, v.new_vaccinations))
+           OVER (
+             partition BY d.location
+             ORDER BY d.location, d.date) AS RollingPeopleVaccinated
+  FROM   covidproject.dbo.coviddeaths d
+         JOIN covidproject.dbo.covidvaccinations v
+           ON d.location = v.location
+              AND d.date = v.date
+  WHERE  d.continent IS NOT NULL 
+
+
+
